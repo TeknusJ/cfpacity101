@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 
 function App() {
   const [projects, setProjects] = useState([]);
@@ -11,48 +11,7 @@ function App() {
     startDate: '',
     endDate: ''
   });
-// Add these new functions here
-const calculateConsultantCapacityForDate = (consultant, date) => {
-  return projects
-    .filter(project => 
-      project.consultant === consultant && 
-      date >= new Date(project.startDate) && 
-      date <= new Date(project.endDate)
-    )
-    .reduce((sum, project) => sum + projectTypes[project.type].roleWeights[project.role], 0);
-};
 
-const getUniqueConsultants = () => {
-  return [...new Set(projects.map(project => project.consultant))].filter(Boolean);
-};
-
-const getConsultantCapacityWarnings = (consultant) => {
-  const warnings = [];
-  const today = new Date();
-  const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-  
-  const currentCapacity = calculateConsultantCapacityForDate(consultant, today);
-  if (currentCapacity > 100) {
-    warnings.push(`${consultant} is over capacity by ${(currentCapacity - 100).toFixed(1)}%`);
-  }
-
-  const nextMonthCapacity = calculateConsultantCapacityForDate(consultant, nextMonth);
-  if (nextMonthCapacity > 100) {
-    warnings.push(`${consultant} will be over capacity next month by ${(nextMonthCapacity - 100).toFixed(1)}%`);
-  }
-
-  const consultantProjects = projects.filter(p => p.consultant === consultant);
-  const endingProjects = consultantProjects.filter(project => {
-    const endDate = new Date(project.endDate);
-    return endDate <= new Date(today.setDate(today.getDate() + 14));
-  });
-  
-  if (endingProjects.length > 0) {
-    warnings.push(`${consultant} has ${endingProjects.length} project(s) ending in the next 2 weeks`);
-  }
-
-  return warnings;
-};
   const projectTypes = {
     'Feasibility Studies': {
       baseCapacity: 25,
@@ -79,8 +38,7 @@ const getConsultantCapacityWarnings = (consultant) => {
       maxConcurrent: 1,
       roleWeights: { lead: 15, support: 10, advisor: 5 }
     }
-  };
-
+  };// Utility Functions
   const isProjectActive = (project) => {
     const today = new Date();
     const startDate = new Date(project.startDate);
@@ -94,38 +52,61 @@ const getConsultantCapacityWarnings = (consultant) => {
     return startDate > today && startDate <= new Date(today.setDate(today.getDate() + 30));
   };
 
-  const calculateCapacityForDate = (date) => {
+  const calculateConsultantCapacityForDate = (consultant, date) => {
     return projects
-      .filter(project => {
-        const projectStart = new Date(project.startDate);
-        const projectEnd = new Date(project.endDate);
-        return date >= projectStart && date <= projectEnd;
-      })
+      .filter(project => 
+        project.consultant === consultant && 
+        date >= new Date(project.startDate) && 
+        date <= new Date(project.endDate)
+      )
       .reduce((sum, project) => sum + projectTypes[project.type].roleWeights[project.role], 0);
   };
 
-  const getCapacityWarnings = () => {
+  const getUniqueConsultants = () => {
+    return [...new Set(projects.map(project => project.consultant))].filter(Boolean);
+  };
+
+  const getFutureCapacityForecast = (months = 3) => {
+    const forecast = [];
+    const today = new Date();
+    
+    for(let i = 0; i < months; i++) {
+      const futureDate = new Date(today.getFullYear(), today.getMonth() + i, 1);
+      const monthCapacity = {
+        month: futureDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+        byConsultant: getUniqueConsultants().map(consultant => ({
+          name: consultant,
+          capacity: calculateConsultantCapacityForDate(consultant, futureDate)
+        }))
+      };
+      forecast.push(monthCapacity);
+    }
+    return forecast;
+  };
+
+  const getConsultantCapacityWarnings = (consultant) => {
     const warnings = [];
     const today = new Date();
     const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
     
-    const currentCapacity = calculateCapacityForDate(today);
+    const currentCapacity = calculateConsultantCapacityForDate(consultant, today);
     if (currentCapacity > 100) {
-      warnings.push(`Currently over capacity by ${(currentCapacity - 100).toFixed(1)}%`);
+      warnings.push(`Over capacity by ${(currentCapacity - 100).toFixed(1)}%`);
     }
 
-    const nextMonthCapacity = calculateCapacityForDate(nextMonth);
+    const nextMonthCapacity = calculateConsultantCapacityForDate(consultant, nextMonth);
     if (nextMonthCapacity > 100) {
-      warnings.push(`Next month will be over capacity by ${(nextMonthCapacity - 100).toFixed(1)}%`);
+      warnings.push(`Will be over capacity next month by ${(nextMonthCapacity - 100).toFixed(1)}%`);
     }
 
-    const endingProjects = projects.filter(project => {
+    const consultantProjects = projects.filter(p => p.consultant === consultant);
+    const endingProjects = consultantProjects.filter(project => {
       const endDate = new Date(project.endDate);
       return endDate <= new Date(today.setDate(today.getDate() + 14));
     });
     
     if (endingProjects.length > 0) {
-      warnings.push(`${endingProjects.length} project(s) ending in the next 2 weeks`);
+      warnings.push(`${endingProjects.length} project(s) ending in 2 weeks`);
     }
 
     return warnings;
@@ -138,8 +119,11 @@ const getConsultantCapacityWarnings = (consultant) => {
         capacity: projectTypes[project.type].roleWeights[project.role],
         status: isProjectActive(project) ? 'Active' : isProjectUpcoming(project) ? 'Upcoming' : 'Inactive'
       })),
-      capacityWarnings: getCapacityWarnings(),
-      totalCurrentCapacity: calculateCapacityForDate(new Date())
+      consultantCapacities: getUniqueConsultants().map(consultant => ({
+        consultant,
+        currentCapacity: calculateConsultantCapacityForDate(consultant, new Date()),
+        warnings: getConsultantCapacityWarnings(consultant)
+      }))
     };
 
     if (format === 'json') {
@@ -147,16 +131,16 @@ const getConsultantCapacityWarnings = (consultant) => {
       downloadFile(jsonString, 'capacity-data.json', 'application/json');
     } else if (format === 'csv') {
       const csvContent = [
-        ['Client', 'Project Type', 'Role', 'Start Date', 'End Date', 'Capacity %', 'Status', 'Consultant'],
+        ['Client', 'Project Type', 'Role', 'Consultant', 'Start Date', 'End Date', 'Capacity %', 'Status'],
         ...data.projects.map(p => [
           p.client,
           p.type,
           p.role,
+          p.consultant,
           p.startDate,
           p.endDate,
           p.capacity,
-          p.status,
-          p.consultant
+          p.status
         ])
       ].map(row => row.join(',')).join('\n');
 
@@ -195,16 +179,11 @@ const getConsultantCapacityWarnings = (consultant) => {
       startPosition: ((new Date(project.startDate) - minDate) / (maxDate - minDate)) * 100,
       duration: ((new Date(project.endDate) - new Date(project.startDate)) / (maxDate - minDate)) * 100
     }));
-  };
-
-  const calculateTypeCapacity = (type) => {
-    return projects
-      .filter(p => p.type === type && isProjectActive(p))
-      .reduce((sum, project) => sum + projectTypes[project.type].roleWeights[project.role], 0);
-  };
+  };// ConsultantCapacitySection Component
   const ConsultantCapacitySection = ({ consultant }) => {
     const consultantProjects = projects.filter(p => p.consultant === consultant);
     const currentCapacity = calculateConsultantCapacityForDate(consultant, new Date());
+    const warnings = getConsultantCapacityWarnings(consultant);
     
     return (
       <div className="bg-white rounded-lg shadow p-4 mb-4">
@@ -219,15 +198,17 @@ const getConsultantCapacityWarnings = (consultant) => {
           </span>
         </div>
         
-        <div className="space-y-2">
-          {getConsultantCapacityWarnings(consultant).map((warning, index) => (
-            <div key={index} className="text-sm text-yellow-600">
-              ⚠️ {warning}
-            </div>
-          ))}
-        </div>
-  
-        <div className="mt-4">
+        {warnings.length > 0 && (
+          <div className="space-y-1 mb-3">
+            {warnings.map((warning, index) => (
+              <div key={index} className="text-sm text-yellow-600">
+                ⚠️ {warning}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-3">
           <h4 className="text-sm font-medium mb-2">Active Projects:</h4>
           {consultantProjects
             .filter(isProjectActive)
@@ -240,6 +221,8 @@ const getConsultantCapacityWarnings = (consultant) => {
       </div>
     );
   };
+
+  // Main render
   return (
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-7xl mx-auto">
@@ -261,23 +244,7 @@ const getConsultantCapacityWarnings = (consultant) => {
           </div>
         </div>
 
-        {getCapacityWarnings().length > 0 && (
-          <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
-            <div className="flex">
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-yellow-800">Capacity Warnings</h3>
-                <div className="mt-2 text-sm text-yellow-700">
-                  <ul className="list-disc list-inside">
-                    {getCapacityWarnings().map((warning, index) => (
-                      <li key={index}>{warning}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        
+        {/* Project Input Form */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-xl font-semibold mb-4">Add New Project</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -352,13 +319,20 @@ const getConsultantCapacityWarnings = (consultant) => {
             <button
               className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600 md:col-span-2"
               onClick={() => {
-                if (currentProject.client && currentProject.startDate && currentProject.endDate) {
-                  const newTotalCapacity = calculateCapacityForDate(new Date(currentProject.startDate));
-                  if (newTotalCapacity > 100) {
-                    if (!window.confirm(`Warning: Adding this project will exceed 100% capacity (${newTotalCapacity.toFixed(1)}%). Continue?`)) {
+                if (currentProject.client && currentProject.consultant && currentProject.startDate && currentProject.endDate) {
+                  const newConsultantCapacity = calculateConsultantCapacityForDate(
+                    currentProject.consultant,
+                    new Date(currentProject.startDate)
+                  ) + projectTypes[currentProject.type].roleWeights[currentProject.role];
+
+                  if (newConsultantCapacity > 100) {
+                    if (!window.confirm(
+                      `Warning: This will put ${currentProject.consultant} at ${newConsultantCapacity.toFixed(1)}% capacity. Continue?`
+                    )) {
                       return;
                     }
                   }
+                  
                   setProjects([...projects, currentProject]);
                   setCurrentProject({
                     type: 'Feasibility Studies',
@@ -375,36 +349,8 @@ const getConsultantCapacityWarnings = (consultant) => {
             </button>
           </div>
         </div>
-        <button
-  className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600 md:col-span-2"
-  onClick={() => {
-    if (currentProject.client && currentProject.consultant && currentProject.startDate && currentProject.endDate) {
-      const newConsultantCapacity = calculateConsultantCapacityForDate(
-        currentProject.consultant,
-        new Date(currentProject.startDate)
-      ) + projectTypes[currentProject.type].roleWeights[currentProject.role];
 
-      if (newConsultantCapacity > 100) {
-        if (!window.confirm(
-          `Warning: This will put ${currentProject.consultant} at ${newConsultantCapacity.toFixed(1)}% capacity. Continue?`
-        )) {
-          return;
-        }
-      }
-      
-      setProjects([...projects, currentProject]);
-      setCurrentProject({
-        type: 'Feasibility Studies',
-        role: 'lead',
-        client: '',
-        consultant: '',
-        startDate: '',
-        endDate: ''
-      });
-    }
-  }}
->
-</button>
+        {/* Timeline Visualization */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-xl font-semibold mb-4">Project Timeline</h2>
           <div className="relative h-auto">
@@ -422,7 +368,7 @@ const getConsultantCapacityWarnings = (consultant) => {
                                    isProjectUpcoming(project) ? '#60a5fa' : '#93c5fd'
                   }}
                 >
-                  {project.client} - {project.type}
+                  {project.consultant} - {project.client} ({project.type})
                 </div>
               </div>
             ))}
@@ -437,75 +383,36 @@ const getConsultantCapacityWarnings = (consultant) => {
           </div>
         </div>
 
+        {/* Consultant Capacities */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">Projects</h2>
-          <div className="space-y-2">
-            {projects.map((project, index) => (
-              <div 
-                key={index} 
-                className={`flex justify-between items-center p-3 rounded
-                  ${isProjectActive(project) ? 'bg-blue-50' : 
-                    isProjectUpcoming(project) ? 'bg-green-50' : 'bg-gray-50'}`}
-              >{/* Consultant Capacities */}
-              <div className="bg-white rounded-lg shadow p-6 mb-6">
-                <h2 className="text-xl font-semibold mb-4">Consultant Capacities</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {getUniqueConsultants().map(consultant => (
-                    <ConsultantCapacitySection key={consultant} consultant={consultant} />
-                  ))}
-                </div>
-              </div>
-                <div>
-                  <span className="font-medium">{project.client}</span>
-                  <span className="text-sm text-gray-600"> - {project.type} ({project.role})</span>
-                  <br />
-                  <span className="text-sm text-gray-500">{project.consultant}</span>
-                  <br />
-                  <span className="text-xs text-gray-400">
-                    {new Date(project.startDate).toLocaleDateString()} - 
-                    {new Date(project.endDate).toLocaleDateString()}
-                    {isProjectActive(project) && 
-                      <span className="ml-2 text-green-500">(Active)</span>
-                    }
-                    {isProjectUpcoming(project) &&
-                      <span className="ml-2 text-blue-500">(Upcoming)</span>
-                    }
-                  </span>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <span>{projectTypes[project.type].roleWeights[project.role]}% capacity</span>
-                  <button
-                    className="text-red-500 hover:text-red-700"
-                    onClick={() => setProjects(projects.filter((_, i) => i !== index))}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
+          <h2 className="text-xl font-semibold mb-4">Consultant Workloads</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {getUniqueConsultants().map(consultant => (
+              <ConsultantCapacitySection key={consultant} consultant={consultant} />
             ))}
           </div>
-        </div>
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Capacity Utilization</h2>
-          <div className="h-64">
+          
+          {/* Consultant Comparison Chart */}
+          <div className="mt-6 h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={Object.entries(projectTypes).map(([type, model]) => ({
-                  type,
-                  capacity: calculateTypeCapacity(type),
-                  target: model.baseCapacity
+                data={getUniqueConsultants().map(consultant => ({
+                  name: consultant,
+                  current: calculateConsultantCapacityForDate(consultant, new Date()),
+                  upcoming: calculateConsultantCapacityForDate(consultant, new Date(new Date().setMonth(new Date().getMonth() + 1)))
                 }))}
               >
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="type" angle={-45} textAnchor="end" height={100} />
+                <XAxis dataKey="name" />
                 <YAxis label={{ value: 'Capacity %', angle: -90, position: 'insideLeft' }} />
                 <Tooltip />
-                <Bar dataKey="capacity" fill="#3b82f6" name="Current %" />
-                <Bar dataKey="target" fill="#93c5fd" name="Target %" />
+                <Bar dataKey="current" name="Current Load" fill="#3b82f6" />
+                <Bar dataKey="upcoming" name="Next Month" fill="#93c5fd" />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
+
       </div>
     </div>
   );
